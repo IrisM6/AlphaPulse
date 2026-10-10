@@ -1869,6 +1869,15 @@ export class AlphaLikesService {
    * spinner or a bare N/A there would look like a paper without citations.
    */
   planCitationCell(item: Zotero.Item): CitationCellPlan {
+    if (!this.isTopLevelRow(item)) {
+      return {
+        value: "",
+        text: "",
+        count: null,
+        highImpact: false,
+        source: null,
+      };
+    }
     const plan = this.planCitationCellFor(item);
     // Feed the citation percentile population, like `planCell` does for likes.
     if (plan.count !== null) this.observedCitations.set(item.id, plan.count);
@@ -2598,6 +2607,10 @@ export class AlphaLikesService {
   }
 
   private computeCellValue(item: Zotero.Item): string {
+    // An attachment or snapshot under a paper is not the paper: its URL may
+    // carry an arXiv ID, but the number belongs to the parent row only.
+    if (!this.isTopLevelRow(item)) return "";
+
     // A cleared item is left alone. Reading it again would put the deleted
     // lines straight back into `Extra` on the next repaint.
     if (this.isCleared(item)) return CELL_CLEARED;
@@ -2704,6 +2717,21 @@ export class AlphaLikesService {
    * A note, an attachment or a row of any other kind is not something alphaXiv
    * could hold, so nothing is read for it and nothing is claimed about it.
    */
+  /**
+   * Whether this row is a top-level library item rather than an attachment or
+   * note shown under one. Child rows never display a like or citation count.
+   */
+  private isTopLevelRow(item: Zotero.Item): boolean {
+    try {
+      if (typeof item.isRegularItem === "function" && !item.isRegularItem()) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+    return true;
+  }
+
   private isReadableItem(item: Zotero.Item): boolean {
     try {
       if (typeof item.isRegularItem === "function" && !item.isRegularItem()) {

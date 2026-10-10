@@ -304,6 +304,53 @@ describe("AlphaLikes refresh", function () {
       );
     });
 
+    it("leaves attachments and snapshots under a paper blank in both columns", async function () {
+      // Reported: after expanding a paper, its snapshot showed a like count
+      // (and a citation count). The snapshot's URL carries the same arXiv ID,
+      // so the ID lookup used to answer for the child row. Only the paper
+      // itself owns these numbers.
+      const paper = new Zotero.Item("journalArticle");
+      paper.libraryID = Zotero.Libraries.userLibraryID;
+      paper.setField("title", "Child row probe paper with a snapshot");
+      paper.setField("url", "https://arxiv.org/abs/2401.00001");
+      paper.setField("extra", upsertLikesCache("", 42));
+      await paper.saveTx();
+
+      const snapshot = new Zotero.Item("attachment");
+      snapshot.libraryID = Zotero.Libraries.userLibraryID;
+      snapshot.parentID = paper.id;
+      snapshot.setField("title", "Snapshot");
+      snapshot.setField("url", "https://arxiv.org/abs/2401.00001");
+      snapshot.attachmentLinkMode = Zotero.Attachments.LINK_MODE_LINKED_URL;
+      await snapshot.saveTx();
+
+      try {
+        const parentRow = Zotero.Items.get(paper.id);
+        assert.equal(
+          service.planCell(parentRow).text,
+          "42",
+          "the paper itself still shows its like count",
+        );
+
+        const child = Zotero.Items.get(snapshot.id);
+        assert.isFalse(child.isRegularItem(), "the snapshot is a child row");
+        assert.equal(service.getCellData(child), "", "no like count");
+        assert.equal(
+          service.getCitationCellData(child),
+          "",
+          "no citation count",
+        );
+        assert.equal(service.planCitationCell(child).text, "");
+      } finally {
+        try {
+          await snapshot.eraseTx();
+          await paper.eraseTx();
+        } catch {
+          // The library may already be gone when the run tears down.
+        }
+      }
+    });
+
     it("says nothing is readable for an item with nothing to match on", async function () {
       // Reported: an item with no arXiv ID and no way to look one up was
       // reported as 「标题太短，无法自动检索」. There is no like count to read
