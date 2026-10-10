@@ -5,6 +5,10 @@ import {
 } from "./modules/column";
 import { loadStrings } from "./modules/l10n";
 import { registerItemMenu, unregisterItemMenu } from "./modules/menu";
+import {
+  registerPaperActor,
+  unregisterPaperActor,
+} from "./modules/paper-sites";
 import { observePrefs } from "./modules/prefs";
 
 /**
@@ -89,6 +93,7 @@ async function onStartup(): Promise<void> {
   ]);
 
   await registerAlphaXivLikesColumn();
+  registerPaperActor();
 
   // The Fluent file has to be linked into the window before the strings are
   // read, otherwise the first read would fall back to the built-in English
@@ -137,6 +142,7 @@ async function onShutdown(): Promise<void> {
     removeWindowLocalization(win);
   }
 
+  unregisterPaperActor();
   await shutdownAlphaXivLikesColumn();
   addon.data.alive = false;
 

@@ -26,6 +26,7 @@ import { getService } from "./column";
 import { getCitationPrefs, getCitationSourcePreferences } from "./prefs";
 import { t } from "./l10n";
 import { toast } from "./notify";
+import { lookupPaper } from "./paper-sites";
 import type { RefreshSummary } from "./service";
 
 const MENU_ID = "alphalikes-menu";
@@ -49,6 +50,7 @@ const REFRESH_CITATIONS_ID = "alphalikes-refresh-citations";
 const MANUAL_CITATIONS_ID = "alphalikes-manual-citations";
 const OPEN_ALPHAXIV_ID = "alphalikes-open-alphaxiv";
 const OPEN_SCHOLAR_ID = "alphalikes-open-scholar";
+const OPEN_CHATPAPER_ID = "alphalikes-open-chatpaper";
 const CLEAR_ID = "alphalikes-clear-data";
 
 /**
@@ -182,6 +184,8 @@ export interface MenuVisibility {
   refreshCitations: boolean;
   openAlphaXiv: boolean;
   openScholar: boolean;
+  /** Open the selected paper's ChatPaper page. */
+  openChatPaper: boolean;
   /** One row, so the number typed into the box belongs to it. */
   manualCitations: boolean;
   clear: boolean;
@@ -198,6 +202,7 @@ export function menuVisibility(state: MenuState): MenuVisibility {
     refreshCitations: state.count > 0 && state.citationsEnabled,
     openAlphaXiv: state.count > 0 && state.openableAlphaXiv,
     openScholar: state.citationsEnabled && state.findsScholar,
+    openChatPaper: state.count > 0,
     manualCitations: state.count === 1 && state.citationsEnabled,
     clear: state.count > 0,
   };
@@ -605,6 +610,26 @@ function openAlphaXivPage(win: Window): void {
  * there by eye, and the report asks for a comparison), so it stays, and says
  * what it does.
  */
+/** The item's title, or nothing when the item cannot say (a note, an error). */
+function titleOf(item: Zotero.Item): string {
+  try {
+    return String(item.getField("title") ?? "");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Opens the first selected paper's ChatPaper page.
+ *
+ * ChatPaper is searched by the title, so an item without one has nothing to
+ * look up and the user is told so.
+ */
+function openChatPaperPage(win: Window): void {
+  const item = selectedItems(win)[0];
+  lookupPaper(item ? titleOf(item) : "");
+}
+
 function openScholarVerification(win: Window): void {
   const items = selectedItems(win);
   getService().openScholarVerification(items.length === 1 ? items[0] : null);
@@ -696,6 +721,15 @@ export function registerItemMenu(win: _ZoteroTypes.MainWindow): void {
         activityRows.push(row);
       }
 
+      const openChatPaper = createMenuItem(
+        doc,
+        OPEN_CHATPAPER_ID,
+        t("menu-open-chatpaper"),
+        () => {
+          openChatPaperPage(win);
+        },
+      );
+
       const clear = createMenuItem(doc, CLEAR_ID, t("menu-clear"), () => {
         void clearSelectedItems(win);
       });
@@ -708,6 +742,7 @@ export function registerItemMenu(win: _ZoteroTypes.MainWindow): void {
         refresh,
         refreshCitations,
         openAlphaXiv,
+        openChatPaper,
         openScholar,
         manualCitations,
         createSeparator(doc, SEPARATOR_ID),
@@ -748,6 +783,7 @@ export function registerItemMenu(win: _ZoteroTypes.MainWindow): void {
         setHidden(refreshCitations, !visibility.refreshCitations);
         setHidden(openAlphaXiv, !visibility.openAlphaXiv);
         setHidden(openScholar, !visibility.openScholar);
+        setHidden(openChatPaper, !visibility.openChatPaper);
         setHidden(manualCitations, !visibility.manualCitations);
         setHidden(clear, !visibility.clear);
         // Only the item menu hides its whole entry; see `menuVisibility`.
@@ -778,6 +814,7 @@ export function unregisterItemMenu(win: Window): void {
       MANUAL_CITATIONS_ID,
       OPEN_ALPHAXIV_ID,
       OPEN_SCHOLAR_ID,
+      OPEN_CHATPAPER_ID,
       CLEAR_ID,
     ]) {
       doc.getElementById(id)?.remove();

@@ -170,6 +170,15 @@ describe("the plugin menu", function () {
     }
   });
 
+  function otherSourceOpen(): boolean {
+    return menuVisibility({
+      count: 1,
+      citationsEnabled: false,
+      findsScholar: false,
+      openableAlphaXiv: false,
+    }).openChatPaper;
+  }
+
   it("decides each entry from the selection and the sources", function () {
     // The rule is a pure function so it can be read and tested without a live
     // popup: a test that dispatches `popupshowing` cannot tell this module's
@@ -187,9 +196,21 @@ describe("the plugin menu", function () {
       refreshCitations: true,
       openAlphaXiv: true,
       openScholar: true,
+      openChatPaper: true,
       manualCitations: true,
       clear: true,
     });
+
+    // Opening the ChatPaper page needs a selected row (its title is what is
+    // searched), and does not depend on the citation sources.
+    const none = menuVisibility({
+      count: 0,
+      citationsEnabled: true,
+      findsScholar: true,
+      openableAlphaXiv: false,
+    });
+    assert.isFalse(none.openChatPaper);
+    assert.isTrue(otherSourceOpen(), "still offered without Google Scholar");
 
     // Google Scholar is the only source that can ask the visitor to prove they
     // are human, so its two entries leave with it.
