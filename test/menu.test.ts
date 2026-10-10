@@ -176,7 +176,7 @@ describe("the plugin menu", function () {
       citationsEnabled: false,
       findsScholar: false,
       openableAlphaXiv: false,
-    }).openChatPaper;
+    }).openAMiner;
   }
 
   it("decides each entry from the selection and the sources", function () {
@@ -196,6 +196,7 @@ describe("the plugin menu", function () {
       refreshCitations: true,
       openAlphaXiv: true,
       openScholar: true,
+      openAMiner: true,
       openChatPaper: true,
       manualCitations: true,
       clear: true,
@@ -209,6 +210,7 @@ describe("the plugin menu", function () {
       findsScholar: true,
       openableAlphaXiv: false,
     });
+    assert.isFalse(none.openAMiner);
     assert.isFalse(none.openChatPaper);
     assert.isTrue(otherSourceOpen(), "still offered without Google Scholar");
 

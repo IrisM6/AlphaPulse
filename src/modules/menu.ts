@@ -50,6 +50,7 @@ const REFRESH_CITATIONS_ID = "alphalikes-refresh-citations";
 const MANUAL_CITATIONS_ID = "alphalikes-manual-citations";
 const OPEN_ALPHAXIV_ID = "alphalikes-open-alphaxiv";
 const OPEN_SCHOLAR_ID = "alphalikes-open-scholar";
+const OPEN_AMINER_ID = "alphalikes-open-aminer";
 const OPEN_CHATPAPER_ID = "alphalikes-open-chatpaper";
 const CLEAR_ID = "alphalikes-clear-data";
 
@@ -184,7 +185,8 @@ export interface MenuVisibility {
   refreshCitations: boolean;
   openAlphaXiv: boolean;
   openScholar: boolean;
-  /** Open the selected paper's ChatPaper page. */
+  /** Open the selected paper's page on AMiner or ChatPaper. */
+  openAMiner: boolean;
   openChatPaper: boolean;
   /** One row, so the number typed into the box belongs to it. */
   manualCitations: boolean;
@@ -202,6 +204,7 @@ export function menuVisibility(state: MenuState): MenuVisibility {
     refreshCitations: state.count > 0 && state.citationsEnabled,
     openAlphaXiv: state.count > 0 && state.openableAlphaXiv,
     openScholar: state.citationsEnabled && state.findsScholar,
+    openAMiner: state.count > 0,
     openChatPaper: state.count > 0,
     manualCitations: state.count === 1 && state.citationsEnabled,
     clear: state.count > 0,
@@ -620,14 +623,14 @@ function titleOf(item: Zotero.Item): string {
 }
 
 /**
- * Opens the first selected paper's ChatPaper page.
+ * Opens the first selected paper's page on AMiner or ChatPaper.
  *
- * ChatPaper is searched by the title, so an item without one has nothing to
+ * Both sites are searched by the title, so an item without one has nothing to
  * look up and the user is told so.
  */
-function openChatPaperPage(win: Window): void {
+function openPaperPage(win: Window, site: "aminer" | "chatpaper"): void {
   const item = selectedItems(win)[0];
-  lookupPaper(item ? titleOf(item) : "");
+  lookupPaper(site, item ? titleOf(item) : "");
 }
 
 function openScholarVerification(win: Window): void {
@@ -721,12 +724,20 @@ export function registerItemMenu(win: _ZoteroTypes.MainWindow): void {
         activityRows.push(row);
       }
 
+      const openAMiner = createMenuItem(
+        doc,
+        OPEN_AMINER_ID,
+        t("menu-open-aminer"),
+        () => {
+          openPaperPage(win, "aminer");
+        },
+      );
       const openChatPaper = createMenuItem(
         doc,
         OPEN_CHATPAPER_ID,
         t("menu-open-chatpaper"),
         () => {
-          openChatPaperPage(win);
+          openPaperPage(win, "chatpaper");
         },
       );
 
@@ -742,6 +753,7 @@ export function registerItemMenu(win: _ZoteroTypes.MainWindow): void {
         refresh,
         refreshCitations,
         openAlphaXiv,
+        openAMiner,
         openChatPaper,
         openScholar,
         manualCitations,
@@ -783,6 +795,7 @@ export function registerItemMenu(win: _ZoteroTypes.MainWindow): void {
         setHidden(refreshCitations, !visibility.refreshCitations);
         setHidden(openAlphaXiv, !visibility.openAlphaXiv);
         setHidden(openScholar, !visibility.openScholar);
+        setHidden(openAMiner, !visibility.openAMiner);
         setHidden(openChatPaper, !visibility.openChatPaper);
         setHidden(manualCitations, !visibility.manualCitations);
         setHidden(clear, !visibility.clear);
@@ -814,6 +827,7 @@ export function unregisterItemMenu(win: Window): void {
       MANUAL_CITATIONS_ID,
       OPEN_ALPHAXIV_ID,
       OPEN_SCHOLAR_ID,
+      OPEN_AMINER_ID,
       OPEN_CHATPAPER_ID,
       CLEAR_ID,
     ]) {

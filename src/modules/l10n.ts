@@ -103,12 +103,12 @@ export const MESSAGES = {
   // --- Clearing this plugin's own records ----------------------------------
   "menu-clear": "Remove the Extra records this plugin wrote",
   "menu-open-alphaxiv": "Open the alphaXiv page",
+  "menu-open-aminer": "Open the AMiner page",
   "menu-open-chatpaper": "Open the ChatPaper page",
   "notify-paper-searching": 'Searching {site} for "{title}"…',
   "notify-paper-no-match":
     "No result on {site} is close enough to this paper, so no page was opened.",
-  "notify-paper-chatpaper-opened":
-    "The best match on ChatPaper is open in your browser.",
+  "notify-paper-opened": "The best match on {site} is open in your browser.",
   "notify-paper-busy":
     "This site is still looking up the previous paper; please wait.",
   "notify-paper-no-title":

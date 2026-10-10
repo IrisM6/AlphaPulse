@@ -1,14 +1,14 @@
 /**
- * Opening a paper's ChatPaper page from its title.
+ * Opening a paper's page on AMiner or ChatPaper from its title.
  *
- * ChatPaper has a search page addressed by the title, but its results are
+ * Both sites have a search page addressed by the title, but their results are
  * built with JavaScript. So the search runs in a hidden browser, where a window
  * actor (`addon/content/paper-child.sys.mjs`) reads the list of results; the
- * best one is then opened in the user's own browser.
+ * best one is then opened in the user's own browser, and the lookup is over.
  *
  * The decisions - which result is the paper, and when nothing is close enough -
  * are plain functions and an orchestrator with injected dependencies, so they
- * are tested against fake pages. The live site is not part of the test suite.
+ * are tested against fake pages. The live sites are not part of the test suite.
  */
 
 import { config } from "../../package.json";
@@ -17,21 +17,33 @@ import { openExternal, toast } from "./notify";
 import { t } from "./l10n";
 import { titleSimilarity } from "./similarity";
 
+export type PaperSite = "aminer" | "chatpaper";
+
 /** The page actor's name, as registered in `registerPaperActor`. */
 const ACTOR_NAME = "AlphaPulsePaper";
-
-const SITE = "ChatPaper";
 
 /** Below this similarity no result is the paper, so nothing is opened. */
 export const MATCH_THRESHOLD = 0.6;
 
 /** How long a results page may take to render. */
-const PAGE_WAIT_MS = 20_000;
+const PAGE_WAIT_MS = 60_000;
 const POLL_MS = 1_000;
+
+export function aminerSearchURL(title: string): string {
+  return `https://www.aminer.cn/search/pub?q=${encodeURIComponent(title.trim())}`;
+}
 
 export function chatPaperSearchURL(title: string): string {
   return `https://chatpaper.com/zh-CN/search?keywords=${encodeURIComponent(title.trim())}&type=all`;
 }
+
+const SITES: Record<
+  PaperSite,
+  { name: string; search(title: string): string }
+> = {
+  aminer: { name: "AMiner", search: aminerSearchURL },
+  chatpaper: { name: "ChatPaper", search: chatPaperSearchURL },
+};
 
 export interface PaperCandidate {
   href: string;
@@ -125,40 +137,43 @@ async function pollUntil<T>(
 
 async function waitForCandidates(
   session: PaperSession,
+  site: PaperSite,
   deps: PaperLookupDeps,
 ): Promise<PaperCandidate[]> {
   const found = await pollUntil(
     deps,
     PAGE_WAIT_MS,
-    () => ask<PaperCandidate[]>(session, "candidates"),
+    () => ask<PaperCandidate[]>(session, "candidates", { site }),
     (list) => Array.isArray(list) && list.length > 0,
   );
   return found ?? [];
 }
 
 /**
- * Finds the paper on ChatPaper and opens its page in the user's browser.
+ * Finds the paper on `site` and opens its page in the user's browser.
  */
-export async function lookupOnChatPaper(
+export async function lookupPaperPage(
+  site: PaperSite,
   title: string,
   deps: PaperLookupDeps,
 ): Promise<void> {
-  const session = await deps.openSession(chatPaperSearchURL(title));
+  const { name, search } = SITES[site];
+  const session = await deps.openSession(search(title));
   if (!session) {
-    deps.notify(SITE, t("notify-paper-no-browser"));
+    deps.notify(name, t("notify-paper-no-browser"));
     return;
   }
 
   try {
-    const candidates = await waitForCandidates(session, deps);
+    const candidates = await waitForCandidates(session, site, deps);
     const paper = pickBestMatch(title, candidates);
     if (!paper) {
-      deps.notify(SITE, t("notify-paper-no-match", { site: SITE }));
+      deps.notify(name, t("notify-paper-no-match", { site: name }));
       return;
     }
 
     deps.open(paper.href);
-    deps.notify(SITE, t("notify-paper-chatpaper-opened"));
+    deps.notify(name, t("notify-paper-opened", { site: name }));
   } finally {
     session.close();
   }
@@ -225,40 +240,42 @@ export function liveDeps(): PaperLookupDeps {
   };
 }
 
-/** Whether a lookup is already running, so a second click does not start another. */
-let running = false;
+/** Sites with a lookup running, so a second click does not start another. */
+const running = new Set<PaperSite>();
 
-/** Starts a lookup for `title`, reporting progress as it goes. */
+/** Starts a lookup for `title` on `site`, reporting progress as it goes. */
 export function lookupPaper(
+  site: PaperSite,
   title: string,
   deps: PaperLookupDeps = liveDeps(),
 ): void {
+  const { name } = SITES[site];
   const cleaned = title.trim();
   if (!cleaned) {
-    deps.notify(SITE, t("notify-paper-no-title"));
+    deps.notify(name, t("notify-paper-no-title"));
     return;
   }
-  if (running) {
-    deps.notify(SITE, t("notify-paper-busy"));
+  if (running.has(site)) {
+    deps.notify(name, t("notify-paper-busy"));
     return;
   }
 
-  running = true;
+  running.add(site);
   deps.notify(
-    SITE,
-    t("notify-paper-searching", { site: SITE, title: cleaned }),
+    name,
+    t("notify-paper-searching", { site: name, title: cleaned }),
   );
-  void lookupOnChatPaper(cleaned, deps)
+  void lookupPaperPage(site, cleaned, deps)
     .catch((error: unknown) => {
-      Zotero.debug(`[AlphaPulse] ChatPaper lookup failed: ${error}`);
-      deps.notify(SITE, t("notify-paper-failed"));
+      Zotero.debug(`[AlphaPulse] ${name} lookup failed: ${error}`);
+      deps.notify(name, t("notify-paper-failed"));
     })
     .finally(() => {
-      running = false;
+      running.delete(site);
     });
 }
 
-/** Makes the page actor available on ChatPaper. Safe to call twice. */
+/** Makes the page actor available on both sites. Safe to call twice. */
 export function registerPaperActor(): void {
   const utils = (
     globalThis as unknown as {
@@ -280,7 +297,7 @@ export function registerPaperActor(): void {
       child: {
         esModuleURI: `chrome://${config.addonRef}/content/paper-child.sys.mjs`,
       },
-      matches: ["https://chatpaper.com/*"],
+      matches: ["https://www.aminer.cn/*", "https://chatpaper.com/*"],
       allFrames: false,
     });
   } catch (error) {

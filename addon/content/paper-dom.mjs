@@ -1,10 +1,10 @@
 /* global URL */
 /**
- * Reads the paper links on a ChatPaper search page.
+ * Reads the paper links on the AMiner and ChatPaper search pages.
  *
- * A plain function over a document, so the page actor
- * (`paper-child.sys.mjs`) uses it in the page, and the test suite runs it over
- * a saved copy of the real page.
+ * Plain functions over a document, so the page actor
+ * (`paper-child.sys.mjs`) uses them in the page, and the test suite runs them
+ * over saved copies of the real pages.
  */
 
 function cleanText(text) {
@@ -24,6 +24,34 @@ function resolveHref(raw, base) {
 
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
+}
+
+/**
+ * Paper links on an AMiner results page, in page order.
+ *
+ * Each result's title link carries the paper's English title, both as text and
+ * as the `title` attribute of the span inside it.
+ */
+export function aminerCandidates(doc, base) {
+  const titled = [...doc.querySelectorAll('a.title-link[href*="/pub/"]')];
+  const pool = titled.length
+    ? titled
+    : [...doc.querySelectorAll('a[href*="/pub/"]')];
+
+  const seen = new Set();
+  const out = [];
+  for (const anchor of pool) {
+    const href = resolveHref(anchor.getAttribute("href"), base);
+    if (!href || seen.has(href)) continue;
+
+    const shown = anchor.querySelector("[title]")?.getAttribute("title");
+    const titles = unique([cleanText(shown), cleanText(anchor.textContent)]);
+    if (!titles.length) continue;
+
+    seen.add(href);
+    out.push({ href, title: titles[0], titles });
+  }
+  return out;
 }
 
 /**

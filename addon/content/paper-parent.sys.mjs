@@ -1,8 +1,10 @@
 /* global JSWindowActorParent */
 /**
- * The chrome side of the "find this paper" page actor. It has no behaviour of
- * its own: the lookup in `src/modules/paper-sites.ts` sends it requests, and
- * the page side (`paper-child.sys.mjs`) answers them. It only has to exist so
- * that `getActor` on the hidden browser hands back a usable object.
+ * The plugin side of "open the AMiner / ChatPaper page".
+ *
+ * The plugin asks the page for its result list with `sendQuery("candidates")`;
+ * the page answers from `paper-child.sys.mjs`. Nothing needs to arrive the
+ * other way, so this actor only has to exist for the messages to flow.
  */
+
 export class AlphaPulsePaperParent extends JSWindowActorParent {}

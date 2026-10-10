@@ -1,21 +1,28 @@
 import { assert } from "chai";
 import {
+  aminerSearchURL,
   chatPaperSearchURL,
-  lookupOnChatPaper,
+  lookupPaperPage,
   pickBestMatch,
   type PaperCandidate,
   type PaperLookupDeps,
   type PaperSession,
+  type PaperSite,
 } from "../src/modules/paper-sites";
 // A plain ES module shared with the page actor; it has no type declarations.
 // @ts-expect-error -- a plain ES module without declarations
 import * as dom from "../addon/content/paper-dom.mjs";
 
 /**
- * The decisions behind "open the ChatPaper page", tested against a fake page
- * and a saved copy of the real results markup. The live site is not part of
- * the suite: its results are built with JavaScript, and what it answers is up
- * to it.
+ * The decisions behind "open the AMiner page" and "open the ChatPaper page",
+ * tested against a fake page. The live sites are not part of the suite: their
+ * results are built with JavaScript, and what they answer is up to them.
+ *
+ * The ChatPaper fixture is a trimmed copy of a real results page. The AMiner
+ * fixture follows the structure the reference describes (a `title-link` anchor
+ * to `/pub/`, with the English title on an inner `[title]` span); no saved
+ * AMiner results page is in the repository, so it is a hand-written copy of
+ * that structure.
  */
 
 const DPO_ITEM_TITLE =
@@ -24,6 +31,8 @@ const DPO_EN_TITLE =
   "Direct Preference Optimization: Your Language Model is Secretly a Reward Model";
 const DPO_CHATPAPER_HREF =
   "https://chatpaper.com/zh-CN/paper/7726?from=subpath-search";
+const DPO_AMINER_HREF =
+  "https://www.aminer.cn/pub/6532c8b2939a5f40820a0e11/direct-preference-optimization-your-language-model-is-secretly-a-reward-model";
 
 /** Markup of a ChatPaper search result block, as saved from chatpaper.com (trimmed). */
 const CHATPAPER_RESULTS_HTML = `
@@ -37,6 +46,19 @@ const CHATPAPER_RESULTS_HTML = `
 <div class="doc-info"><div class="doc-info-name"><span>Scaling Laws for Reward Model Over-Optimization</span></div></div></div>
 `;
 
+/** AMiner results: two versions of the DPO paper and one unrelated paper. */
+const AMINER_RESULTS_HTML = `
+<div class="result">
+  <a class="title-link" href="/pub/6532c8b2939a5f40820a0e11/direct-preference-optimization-your-language-model-is-secretly-a-reward-model"><span title="Direct Preference Optimization: Your Language Model is Secretly a Reward Model">Direct Preference Optimization: Your Language Model is Secretly a Reward Model</span></a>
+</div>
+<div class="result">
+  <a class="title-link" href="/pub/6532c8b2939a5f40820a0e12/direct-preference-optimization"><span title="Direct Preference Optimization">Direct Preference Optimization</span></a>
+</div>
+<div class="result">
+  <a class="title-link" href="/pub/6532c8b2939a5f40820a0e13/graph-networks"><span title="Graph Networks for Molecules">Graph Networks for Molecules</span></a>
+</div>
+`;
+
 function parse(html: string): Document {
   const win = Zotero.getMainWindow() as unknown as {
     DOMParser: new () => DOMParser;
@@ -44,32 +66,27 @@ function parse(html: string): Document {
   return new win.DOMParser().parseFromString(html, "text/html");
 }
 
-interface Script {
-  /** What the results page lists, once it has rendered. */
-  candidates: PaperCandidate[];
-}
-
-function fakeDeps(script: Script) {
+/** The fake page: it answers `candidates` with what its results list shows. */
+function fakeDeps(candidates: PaperCandidate[]) {
   const opened: string[] = [];
   const notices: string[] = [];
   const started: string[] = [];
   const closed: string[] = [];
-
-  const session = (startUrl: string): PaperSession => {
-    started.push(startUrl);
-    return {
-      async query(name) {
-        return name === "candidates" ? script.candidates : null;
-      },
-      close() {
-        closed.push(startUrl);
-      },
-    };
-  };
+  const queries: Array<{ name: string; site: unknown }> = [];
 
   const deps: PaperLookupDeps = {
     async openSession(url) {
-      return session(url);
+      started.push(url);
+      const session: PaperSession = {
+        async query(name, data) {
+          queries.push({ name, site: data?.site });
+          return name === "candidates" ? candidates : null;
+        },
+        close() {
+          closed.push(url);
+        },
+      };
+      return session;
     },
     open(url) {
       opened.push(url);
@@ -82,11 +99,11 @@ function fakeDeps(script: Script) {
     },
   };
 
-  return { deps, opened, notices, started, closed };
+  return { deps, opened, notices, started, closed, queries };
 }
 
-describe("opening the ChatPaper page", function () {
-  describe("reading the real results page", function () {
+describe("opening the AMiner and ChatPaper pages", function () {
+  describe("reading the real ChatPaper results page", function () {
     it("lists each result with its Chinese and English titles", function () {
       const found = dom.chatPaperCandidates(
         parse(CHATPAPER_RESULTS_HTML),
@@ -113,33 +130,56 @@ describe("opening the ChatPaper page", function () {
     });
   });
 
+  describe("reading the AMiner results page", function () {
+    it("lists only the paper links, with their English titles", function () {
+      const found = dom.aminerCandidates(
+        parse(AMINER_RESULTS_HTML),
+        aminerSearchURL(DPO_ITEM_TITLE),
+      );
+      assert.equal(found.length, 3);
+      assert.equal(found[0].href, DPO_AMINER_HREF);
+      assert.include(found[0].titles ?? [], DPO_EN_TITLE);
+    });
+
+    it("picks the DPO paper for the title as it is written in the library", function () {
+      const picked = pickBestMatch(
+        DPO_ITEM_TITLE,
+        dom.aminerCandidates(
+          parse(AMINER_RESULTS_HTML),
+          aminerSearchURL(DPO_ITEM_TITLE),
+        ),
+      );
+      assert.equal(picked?.href, DPO_AMINER_HREF);
+    });
+  });
+
   describe("pickBestMatch", function () {
     it("takes the result whose title is closest to the paper", function () {
       const picked = pickBestMatch("Attention Is All You Need", [
         {
-          href: "https://chatpaper.com/zh-CN/paper/1",
+          href: "https://www.aminer.cn/pub/1/speech",
           title: "Attention is All You Need in Speech Separation",
         },
         {
-          href: "https://chatpaper.com/zh-CN/paper/2",
+          href: "https://www.aminer.cn/pub/2/attention",
           title: "Attention is All You Need",
         },
       ]);
-      assert.equal(picked?.href, "https://chatpaper.com/zh-CN/paper/2");
+      assert.equal(picked?.href, "https://www.aminer.cn/pub/2/attention");
     });
 
     it("takes the first of several versions with the same title", function () {
       const picked = pickBestMatch("Attention Is All You Need", [
         {
-          href: "https://chatpaper.com/zh-CN/paper/a",
+          href: "https://www.aminer.cn/pub/a/attention",
           title: "Attention Is All You Need",
         },
         {
-          href: "https://chatpaper.com/zh-CN/paper/b",
+          href: "https://www.aminer.cn/pub/b/attention",
           title: "attention is all you need",
         },
       ]);
-      assert.equal(picked?.href, "https://chatpaper.com/zh-CN/paper/a");
+      assert.equal(picked?.href, "https://www.aminer.cn/pub/a/attention");
     });
 
     it("counts a result by its best title", function () {
@@ -156,7 +196,7 @@ describe("opening the ChatPaper page", function () {
     it("returns nothing when no result is close enough", function () {
       const picked = pickBestMatch("Attention Is All You Need", [
         {
-          href: "https://chatpaper.com/zh-CN/paper/x",
+          href: "https://www.aminer.cn/pub/x/graphs",
           title: "Graph Neural Networks for Molecules",
         },
       ]);
@@ -165,14 +205,14 @@ describe("opening the ChatPaper page", function () {
 
     it("skips results without a title or an address", function () {
       const picked = pickBestMatch("Attention Is All You Need", [
-        { href: "https://chatpaper.com/zh-CN/paper/empty", title: "   " },
+        { href: "https://www.aminer.cn/pub/empty", title: "   " },
         { href: "", title: "Attention Is All You Need" },
         {
-          href: "https://chatpaper.com/zh-CN/paper/ok",
+          href: "https://www.aminer.cn/pub/ok",
           title: "Attention Is All You Need",
         },
       ]);
-      assert.equal(picked?.href, "https://chatpaper.com/zh-CN/paper/ok");
+      assert.equal(picked?.href, "https://www.aminer.cn/pub/ok");
     });
 
     it("returns nothing for an empty list", function () {
@@ -180,57 +220,98 @@ describe("opening the ChatPaper page", function () {
     });
   });
 
-  it("builds the ChatPaper search address from the title", function () {
-    assert.equal(
-      chatPaperSearchURL("  Attention Is All You Need  "),
-      "https://chatpaper.com/zh-CN/search?keywords=Attention%20Is%20All%20You%20Need&type=all",
-    );
-  });
-
-  describe("lookupOnChatPaper", function () {
-    it("goes to the search page and opens the best matching paper", async function () {
-      const fake = fakeDeps({
-        candidates: [
-          {
-            href: "https://chatpaper.com/zh-CN/paper/999",
-            title: "Unrelated Paper About Graphs",
-          },
-          {
-            href: DPO_CHATPAPER_HREF,
-            title: "直接偏好优化",
-            titles: [
-              "直接偏好优化：你的语言模型实际上是一个奖励模型",
-              DPO_EN_TITLE,
-            ],
-          },
-        ],
-      });
-
-      await lookupOnChatPaper(DPO_ITEM_TITLE, fake.deps);
-
-      assert.deepEqual(fake.started, [chatPaperSearchURL(DPO_ITEM_TITLE)]);
-      assert.deepEqual(fake.opened, [DPO_CHATPAPER_HREF]);
-      assert.deepEqual(
-        fake.closed,
-        [chatPaperSearchURL(DPO_ITEM_TITLE)],
-        "the hidden page is closed",
+  describe("search addresses", function () {
+    it("builds the ChatPaper search address from the title", function () {
+      assert.equal(
+        chatPaperSearchURL("  Attention Is All You Need  "),
+        "https://chatpaper.com/zh-CN/search?keywords=Attention%20Is%20All%20You%20Need&type=all",
       );
     });
 
-    it("opens nothing when no result is close enough", async function () {
-      const fake = fakeDeps({
-        candidates: [
-          {
-            href: "https://chatpaper.com/zh-CN/paper/5",
-            title: "Graph Neural Networks for Molecules",
-          },
-        ],
+    it("builds the AMiner search address from the title", function () {
+      assert.equal(
+        aminerSearchURL("  Attention Is All You Need  "),
+        "https://www.aminer.cn/search/pub?q=Attention%20Is%20All%20You%20Need",
+      );
+    });
+  });
+
+  describe("lookupPaperPage", function () {
+    // The site set-up is built inside each test, not while the suite is
+    // being declared, so the work only happens when a test runs.
+    const siteCases = (): Array<{
+      site: PaperSite;
+      name: string;
+      search: string;
+      candidates: PaperCandidate[];
+      href: string;
+    }> => [
+      {
+        site: "aminer",
+        name: "AMiner",
+        search: aminerSearchURL(DPO_ITEM_TITLE),
+        candidates: dom.aminerCandidates(
+          parse(AMINER_RESULTS_HTML),
+          aminerSearchURL(DPO_ITEM_TITLE),
+        ),
+        href: DPO_AMINER_HREF,
+      },
+      {
+        site: "chatpaper",
+        name: "ChatPaper",
+        search: chatPaperSearchURL(DPO_ITEM_TITLE),
+        candidates: dom.chatPaperCandidates(
+          parse(CHATPAPER_RESULTS_HTML),
+          chatPaperSearchURL(DPO_ITEM_TITLE),
+        ),
+        href: DPO_CHATPAPER_HREF,
+      },
+    ];
+
+    for (const site of ["aminer", "chatpaper"] as const) {
+      it(`${site}: opens the best match and stops there`, async function () {
+        const each = siteCases().find((item) => item.site === site)!;
+        const fake = fakeDeps(each.candidates);
+
+        await lookupPaperPage(each.site, DPO_ITEM_TITLE, fake.deps);
+
+        assert.deepEqual(fake.started, [each.search]);
+        assert.deepEqual(fake.opened, [each.href]);
+        assert.deepEqual(
+          fake.closed,
+          [each.search],
+          "the hidden page is closed",
+        );
+        assert.isTrue(fake.notices.some((line) => line.startsWith(each.name)));
+        assert.isTrue(
+          fake.queries.every((query) => query.site === each.site),
+          "the page is asked about this site only",
+        );
       });
 
-      await lookupOnChatPaper(DPO_ITEM_TITLE, fake.deps);
+      it(`${site}: opens nothing when no result is close enough`, async function () {
+        const each = siteCases().find((item) => item.site === site)!;
+        const fake = fakeDeps([
+          {
+            href: "https://example.org/unrelated",
+            title: "Graph Neural Networks for Molecules",
+          },
+        ]);
+
+        await lookupPaperPage(each.site, DPO_ITEM_TITLE, fake.deps);
+
+        assert.deepEqual(fake.opened, []);
+        assert.isTrue(fake.notices.some((line) => line.startsWith(each.name)));
+      });
+    }
+
+    it("does not open a page when the results never arrive", async function () {
+      const fake = fakeDeps([]);
+
+      await lookupPaperPage("aminer", DPO_ITEM_TITLE, fake.deps);
 
       assert.deepEqual(fake.opened, []);
-      assert.isTrue(fake.notices.some((line) => line.includes("ChatPaper")));
+      assert.deepEqual(fake.closed, [aminerSearchURL(DPO_ITEM_TITLE)]);
     });
   });
 });
